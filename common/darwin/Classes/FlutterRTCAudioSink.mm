@@ -13,8 +13,17 @@
     self = [super init];
     rtc::scoped_refptr<webrtc::AudioSourceInterface> audioSourcePtr = audio.source.nativeAudioSource;
     _audioSource = audioSourcePtr.get();
+    if (_audioSource == nullptr) {
+        NSLog(@"[FlutterRTCAudioSink] nativeAudioSource is NULL for track: %@", audio.trackId);
+    } else {
+        NSLog(@"[FlutterRTCAudioSink] nativeAudioSource OK for track: %@", audio.trackId);
+    }
     _bridge = new AudioSinkBridge((void*)CFBridgingRetain(self));
-    _audioSource->AddSink(_bridge);
+    if (_audioSource) {
+        _audioSource->AddSink(_bridge);
+    } else {
+        NSLog(@"[FlutterRTCAudioSink] Skip AddSink due to null audioSource");
+    }
     return self;
 }
 

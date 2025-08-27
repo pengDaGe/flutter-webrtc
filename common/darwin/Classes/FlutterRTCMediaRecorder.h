@@ -14,11 +14,15 @@
 @property(nonatomic, strong) NSURL* _Nonnull output;
 @property(nonatomic, strong) AVAssetWriter* _Nullable assetWriter;
 @property(nonatomic, strong) AVAssetWriterInput* _Nullable writerInput;
+@property(nonatomic, strong) NSNumber* _Nullable recorderId;
 
 - (instancetype _Nonnull)initWithVideoTrack:(RTCVideoTrack* _Nullable)video
                                  audioTrack:(RTCAudioTrack* _Nullable)audio
-                                 outputFile:(NSURL* _Nonnull)out;
+                                 outputFile:(NSURL* _Nonnull)out
+                                 recorderId:(NSNumber* _Nonnull)recorderId;
 
 - (void)stop:(_Nonnull FlutterResult)result;
+
+- (void)attachAudioTrack:(RTCAudioTrack* _Nonnull)audioTrack;
 
 @end

@@ -26,6 +26,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>$(PRODUCT_NAME) Camera Usage!</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Allow this app to access your Photos to save recorded videos.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Allow this app to add videos to your Photos library.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>$(PRODUCT_NAME) Microphone Usage!</string>
 	<key>UILaunchStoryboardName</key>

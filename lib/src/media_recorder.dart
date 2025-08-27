@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 
 import 'package:webrtc_interface/webrtc_interface.dart' as rtc;
@@ -30,6 +32,16 @@ class MediaRecorder extends rtc.MediaRecorder {
 
   @override
   Future stop() => _delegate.stop();
+
+  // Native-only: 设置实时 PCM 回调
+  void setOnPcm(
+      void Function(Uint8List data, int sampleRate, int channels, int bitsPerSample)? handler,
+      ) {
+    final delegate = _delegate;
+    if (delegate is MediaRecorderNative) {
+      delegate.onPcm = handler;
+    }
+  }
 
   @override
   void startWeb(
