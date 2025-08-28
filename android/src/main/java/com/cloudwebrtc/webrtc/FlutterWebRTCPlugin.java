@@ -3,10 +3,16 @@ package com.cloudwebrtc.webrtc;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.ResultReceiver;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentTransaction;
 import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.LifecycleOwner;
@@ -34,13 +40,21 @@ import io.flutter.view.TextureRegistry;
 public class FlutterWebRTCPlugin implements FlutterPlugin, ActivityAware, EventChannel.StreamHandler {
 
     static public final String TAG = "FlutterWebRTCPlugin";
-    private static Application application;
+    
+    // 添加静态实例变量
+    private static FlutterWebRTCPlugin instance;
+    
+    // 添加getInstance()静态方法
+    public static FlutterWebRTCPlugin getInstance() {
+        return instance;
+    }
 
     private MethodChannel methodChannel;
+    private EventChannel eventChannel;
     private MethodCallHandlerImpl methodCallHandler;
+    private Application application;
     private LifeCycleObserver observer;
     private Lifecycle lifecycle;
-    private EventChannel eventChannel;
 
     // eventSink is static because FlutterWebRTCPlugin can be instantiated multiple times
     // but the onListen(Object, EventChannel.EventSink) event only fires once for the first
@@ -71,6 +85,9 @@ public class FlutterWebRTCPlugin implements FlutterPlugin, ActivityAware, EventC
 
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
+        // 设置静态实例
+        instance = this;
+        
         startListening(binding.getApplicationContext(), binding.getBinaryMessenger(),
                 binding.getTextureRegistry());
     }

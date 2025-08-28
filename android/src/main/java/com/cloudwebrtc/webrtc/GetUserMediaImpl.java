@@ -33,6 +33,9 @@ import android.view.WindowManager;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 
+import android.media.AudioFormat;
+import com.cloudwebrtc.webrtc.record.AudioRecordPcmCapturer;
+
 import com.cloudwebrtc.webrtc.audio.AudioSwitchManager;
 import com.cloudwebrtc.webrtc.audio.AudioUtils;
 import com.cloudwebrtc.webrtc.audio.LocalAudioTrack;
@@ -117,6 +120,9 @@ public class GetUserMediaImpl {
     private AudioDeviceInfo preferredInput = null;
     private boolean isTorchOn;
     private Intent mediaProjectionData = null;
+
+    // AudioRecord 兜底采集器（仅在 INPUT 时可能启用）
+    private final SparseArray<AudioRecordPcmCapturer> audioRecordFallbacks = new SparseArray<>();
 
 
     public void screenRequestPermissions(ResultReceiver resultReceiver) {
@@ -958,11 +964,16 @@ public class GetUserMediaImpl {
         AudioSamplesInterceptor interceptor = null;
         if (audioChannel == AudioChannel.INPUT) {
             interceptor = inputSamplesInterceptor;
+            interceptor.enablePcmData(id);
+            // 启用AudioRecord兜底（无论有无PC，都启动，避免无样本）
+            startAudioRecordFallbackIfNeeded(id);
         } else if (audioChannel == AudioChannel.OUTPUT) {
             if (outputSamplesInterceptor == null) {
                 outputSamplesInterceptor = new OutputAudioSamplesInterceptor(audioDeviceModule);
             }
             interceptor = outputSamplesInterceptor;
+            interceptor.enablePcmData(id);
+            // OUTPUT 不启用 AudioRecord 兜底
         }
         MediaRecorderImpl mediaRecorder = new MediaRecorderImpl(id, videoTrack, interceptor);
         mediaRecorder.startRecording(new File(path));
@@ -972,6 +983,16 @@ public class GetUserMediaImpl {
     void stopRecording(Integer id, String albumName,  Runnable onFinished) {
        MediaRecorderImpl mediaRecorder = mediaRecorders.get(id);
        if (mediaRecorder != null) {
+            // 停止AudioRecord兜底
+            stopAudioRecordFallback(id);
+
+            if (inputSamplesInterceptor != null) {
+                inputSamplesInterceptor.disablePcmData(id);
+            }
+            if (outputSamplesInterceptor != null) {
+                outputSamplesInterceptor.disablePcmData(id);
+            }
+            
             mediaRecorder.stopRecording(() -> {
                 mediaRecorders.remove(id);
                 onFinished.run();
@@ -979,6 +1000,29 @@ public class GetUserMediaImpl {
         }
     }
 
+    private void startAudioRecordFallbackIfNeeded(Integer id) {
+        try {
+            // 常用配置：16k/mono/16bit，兼容大多数设备；可后续根据需要暴露为参数
+            final int sr = 16000;
+            final int chCfg = AudioFormat.CHANNEL_IN_MONO;
+            final int fmt = AudioFormat.ENCODING_PCM_16BIT;
+            AudioRecordPcmCapturer capturer = new AudioRecordPcmCapturer(id, sr, chCfg, fmt);
+            capturer.start();
+            audioRecordFallbacks.put(id, capturer);
+            Log.d(TAG, "AudioRecord fallback started for id=" + id);
+        } catch (Exception e) {
+            Log.w(TAG, "AudioRecord fallback start failed: " + e.getMessage());
+        }
+    }
+
+    private void stopAudioRecordFallback(Integer id) {
+        AudioRecordPcmCapturer capturer = audioRecordFallbacks.get(id);
+        if (capturer != null) {
+            capturer.stop();
+            audioRecordFallbacks.remove(id);
+            Log.d(TAG, "AudioRecord fallback stopped for id=" + id);
+        }
+    }
 
 
     public void reStartCamera(IsCameraEnabled getCameraId) {

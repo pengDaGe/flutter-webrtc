@@ -10,6 +10,7 @@ import 'package:gallery_saver_plus/gallery_saver.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'utils.dart';
+import 'android_pcm_test.dart';
 
 /*
  * getUserMedia sample
@@ -110,9 +111,10 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
       _localStream = stream;
       _localRenderer.srcObject = _localStream;
 
+
       print('获取到媒体流: ${stream.getTracks().length} 个轨道');
       stream.getTracks().forEach((track) {
-        print('轨道类型: ${track.kind}, 启用状态: ${track.enabled}, ID: ${track.id}');
+        print('轨道类型: ${track.kind}, 启用状态: ${track.enabled}, ID: ${track.id},muted: ${track.muted}');
       });
 
     } catch (e) {
@@ -166,11 +168,10 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
         await _audioPcmFile!.delete();
       }
 
-
       // 创建音频录制器
       _audioRecorder = MediaRecorder(albumName: 'FlutterWebRTC');
 
-      // 设置PCM回调
+      // 设置PCM回调 - 这是Android端实时回传的PCM数据
       _audioRecorder!.setOnPcm((Uint8List data, int sampleRate, int channels, int bitsPerSample) async {
         _pcmDataCount++;
         _totalPcmBytes += data.length;
@@ -180,19 +181,20 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
         _channels = channels;
         _bitsPerSample = bitsPerSample;
 
-        print('=== PCM回调被触发 ===');
+        print('=== Android端实时PCM回调 ===');
         print('数据长度: ${data.length} 字节');
         print('采样率: ${AudioUtils.formatSampleRate(sampleRate)}');
         print('声道数: $channels');
         print('位深度: $bitsPerSample bit');
         print('累计数据包: $_pcmDataCount');
         print('累计字节数: ${AudioUtils.formatAudioDataSize(_totalPcmBytes)}');
-        print('pcm数据的内容为: $data');
+        print('PCM数据前10字节: ${data.take(10).toList()}');
 
+        // 实时写入PCM文件
         if (_audioPcmFile != null) {
           try {
             await _audioPcmFile!.writeAsBytes(data, mode: FileMode.append, flush: false);
-            print('PCM数据已写入文件: ${_audioPcmFile!.path}');
+            print('PCM数据已实时写入文件: ${_audioPcmFile!.path}');
           } catch (e) {
             debugPrint('PCM写入错误: $e');
           }
@@ -207,16 +209,18 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
         orElse: () => throw Exception('未找到音频轨道'),
       );
 
-      print('开始音频录制，音频轨道: ${audioTrack.id}');
-
-      // 开始录制音频输入
+      print('开始音频录制，音频轨道ID: ${audioTrack.id}');
+      
+      // 开始录制 - 只录制音频，不录制视频
       await _audioRecorder!.start(
         _audioPcmFilePath!,
-        videoTrack: null, // 不录制视频
-        audioChannel: RecorderAudioChannel.INPUT, // 录制音频输入
+        audioChannel: RecorderAudioChannel.INPUT,
       );
 
-      _recordingStartTime = DateTime.now();
+      navigator.mediaDevices.ondevicechange = (event) {
+        print("[WebRTC] 设备状态变化: $event");
+      };
+
       setState(() {
         _isAudioRecording = true;
       });
@@ -228,10 +232,14 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
         ),
       );
 
+      print('音频录制已开始，PCM文件路径: $_audioPcmFilePath');
     } catch (e) {
       print('开始音频录制失败: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('开始音频录制失败: $e')),
+        SnackBar(
+          content: Text('开始音频录制失败: $e'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
@@ -575,56 +583,94 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
                   Container(
                     padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: Colors.green[50],
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey[300]!),
+                      border: Border.all(color: Colors.green[200]!),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '录制状态',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                        ),
-                        SizedBox(height: 8),
                         Row(
                           children: [
-                            Expanded(
-                              child: _buildInfoItem('数据包', '$_pcmDataCount'),
-                            ),
-                            Expanded(
-                              child: _buildInfoItem('总字节', AudioUtils.formatAudioDataSize(_totalPcmBytes)),
+                            Icon(Icons.info, color: Colors.green[700], size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              '录制状态',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.green[700]),
                             ),
                           ],
                         ),
                         SizedBox(height: 8),
                         Row(
                           children: [
-                            Expanded(
-                              child: _buildInfoItem('采样率', _sampleRate > 0 ? AudioUtils.formatSampleRate(_sampleRate) : '未知'),
-                            ),
-                            Expanded(
-                              child: _buildInfoItem('声道数', _channels > 0 ? '$_channels' : '未知'),
-                            ),
+                            Expanded(child: _buildInfoItem('数据包数', '$_pcmDataCount')),
+                            Expanded(child: _buildInfoItem('总字节数', AudioUtils.formatAudioDataSize(_totalPcmBytes))),
                           ],
                         ),
-                        SizedBox(height: 8),
+                        SizedBox(height: 4),
                         Row(
                           children: [
-                            Expanded(
-                              child: _buildInfoItem('位深度', _bitsPerSample > 0 ? '${_bitsPerSample}bit' : '未知'),
-                            ),
-                            Expanded(
-                              child: _buildInfoItem('时长', _recordingStartTime != null
-                                  ? '${DateTime.now().difference(_recordingStartTime!).inSeconds}s'
-                                  : '0s'),
-                            ),
+                            Expanded(child: _buildInfoItem('采样率', AudioUtils.formatSampleRate(_sampleRate))),
+                            Expanded(child: _buildInfoItem('声道数', '$_channels')),
+                            Expanded(child: _buildInfoItem('位深度', '$_bitsPerSample bit')),
                           ],
                         ),
                       ],
                     ),
                   ),
                 ],
+                
+                // Android PCM测试导航按钮
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange[200]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.android, color: Colors.orange[700], size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'Android PCM测试',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.orange[700]),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        '专门测试Android端的PCM数据实时回传功能',
+                        style: TextStyle(fontSize: 12, color: Colors.orange[600]),
+                      ),
+                      SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const AndroidPcmTestPage(),
+                              ),
+                            );
+                          },
+                          icon: Icon(Icons.play_arrow),
+                          label: Text('开始Android PCM测试'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange[600],
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
                 // PCM文件信息
                 if (_audioPcmFilePath != null) ...[

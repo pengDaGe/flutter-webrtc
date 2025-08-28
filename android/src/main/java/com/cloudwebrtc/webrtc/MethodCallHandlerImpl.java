@@ -211,6 +211,8 @@ public class MethodCallHandlerImpl implements MethodCallHandler, StateProvider {
                   .build();
       }
     }
+
+    Log.w(TAG, "走进了初始化方法");
     JavaAudioDeviceModule.Builder audioDeviceModuleBuilder = JavaAudioDeviceModule.builder(context);
 
     recordSamplesReadyCallbackAdapter = new RecordSamplesReadyCallbackAdapter();
