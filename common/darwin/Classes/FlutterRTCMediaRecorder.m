@@ -4,6 +4,7 @@
 #import "FlutterRTCFrameCapturer.h"
 #import "FlutterWebRTCPlugin.h"
 #import "AudioManager.h"
+#import <AVFoundation/AVFoundation.h>
 
 // Simple renderer to receive processed PCM from AudioProcessingAdapter
 @interface _FlutterRTCAudioPCMRenderer : NSObject <RTCAudioRenderer>
@@ -38,8 +39,17 @@
     self.videoTrack = video;
     self.output = out;
     self.recorderId = recorderId;
-    [video addRenderer:self];
-    framesCount = 0;
+    
+    // 只有在有视频轨时才添加渲染器
+    if (video != nil) {
+        [video addRenderer:self];
+        framesCount = 0;
+    } else {
+        // 纯音频录制
+        NSLog(@"[Recorder:%@] 纯音频录制模式", recorderId);
+        framesCount = 0;
+        isInitialized = true; // 纯音频录制不需要等待视频帧
+    }
     if (audio != nil) {
         NSLog(@"[Recorder:%@] attaching audio track id=%@", recorderId, audio.trackId);
         _audioSink = [[FlutterRTCAudioSink alloc] initWithAudioTrack:audio];
@@ -109,17 +119,24 @@
 
 - (void)initialize:(CGSize)size {
     _renderSize = size;
-    NSDictionary *videoSettings = @{
-            AVVideoCompressionPropertiesKey: @{AVVideoAverageBitRateKey: @(6*1024*1024)},
-            AVVideoCodecKey: AVVideoCodecTypeH264,
-            AVVideoHeightKey: @(size.height),
-            AVVideoWidthKey: @(size.width),
-    };
-    self.writerInput = [[AVAssetWriterInput alloc]
-            initWithMediaType:AVMediaTypeVideo
-               outputSettings:videoSettings];
-    self.writerInput.expectsMediaDataInRealTime = true;
-    self.writerInput.mediaTimeScale = 30;
+    
+    // 只有在有视频轨时才创建视频写入器
+    if (self.videoTrack != nil) {
+        NSDictionary *videoSettings = @{
+                AVVideoCompressionPropertiesKey: @{AVVideoAverageBitRateKey: @(6*1024*1024)},
+                AVVideoCodecKey: AVVideoCodecTypeH264,
+                AVVideoHeightKey: @(size.height),
+                AVVideoWidthKey: @(size.width),
+        };
+        self.writerInput = [[AVAssetWriterInput alloc]
+                initWithMediaType:AVMediaTypeVideo
+                   outputSettings:videoSettings];
+        self.writerInput.expectsMediaDataInRealTime = true;
+        self.writerInput.mediaTimeScale = 30;
+    } else {
+        // 纯音频录制，不需要视频写入器
+        NSLog(@"[Recorder:%@] 纯音频录制，跳过视频写入器初始化", self.recorderId);
+    }
 
     if (_audioSink != nil) {
         AudioChannelLayout acl;
@@ -140,14 +157,22 @@
     }
 
     NSError *error;
+    
+    // 根据是否有视频轨选择文件类型
+    NSString* fileType = (self.videoTrack != nil) ? AVFileTypeMPEG4 : AVFileTypeAppleM4A;
     self.assetWriter = [[AVAssetWriter alloc]
             initWithURL:self.output
-               fileType:AVFileTypeMPEG4
+               fileType:fileType
                   error:&error];
     if (error != nil)
         NSLog(@"%@",[error localizedDescription]);
     self.assetWriter.shouldOptimizeForNetworkUse = true;
-    [self.assetWriter addInput:self.writerInput];
+    
+    // 只有在有视频轨时才添加视频输入
+    if (self.writerInput != nil) {
+        [self.assetWriter addInput:self.writerInput];
+    }
+    
     if (_audioWriter != nil) {
         [self.assetWriter addInput:_audioWriter];
         _audioSink.bufferCallback = ^(CMSampleBufferRef buffer){
@@ -314,10 +339,17 @@
     if (frame == nil) {
         return;
     }
+    
+    // 纯音频录制不需要处理视频帧
+    if (self.videoTrack == nil) {
+        return;
+    }
+    
     if (!isInitialized) {
         [self initialize:CGSizeMake((CGFloat) frame.width, (CGFloat) frame.height)];
     }
-    if (!self.writerInput.readyForMoreMediaData) {
+    
+    if (!self.writerInput || !self.writerInput.readyForMoreMediaData) {
         NSLog(@"Drop frame, not ready");
         return;
     }
@@ -382,9 +414,19 @@
         _engineRunning = NO;
         _engine = nil;
     }
-    [self.videoTrack removeRenderer:self];
-    [self.writerInput markAsFinished];
-    [_audioWriter markAsFinished];
+    // 只有在有视频轨时才移除渲染器
+    if (self.videoTrack != nil) {
+        [self.videoTrack removeRenderer:self];
+    }
+    
+    // 只有在有视频写入器时才标记完成
+    if (self.writerInput != nil) {
+        [self.writerInput markAsFinished];
+    }
+    
+    if (_audioWriter != nil) {
+        [_audioWriter markAsFinished];
+    }
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.assetWriter finishWritingWithCompletionHandler:^{
             NSError* error = self.assetWriter.error;

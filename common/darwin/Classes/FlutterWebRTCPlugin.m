@@ -9,6 +9,7 @@
 #import "FlutterRTCFrameCryptor.h"
 #if TARGET_OS_IPHONE
 #import "FlutterRTCMediaRecorder.h"
+#import "FlutterRTCAudioPcmCapturer.h"
 #import "FlutterRTCVideoPlatformViewFactory.h"
 #import "FlutterRTCVideoPlatformViewController.h"
 #endif
@@ -109,6 +110,7 @@ void postEvent(FlutterEventSink _Nonnull sink, id _Nullable event) {
     AudioManager* _audioManager;
 #if TARGET_OS_IPHONE
     FLutterRTCVideoPlatformViewFactory *_platformViewFactory;
+    NSMutableDictionary<NSNumber*, FlutterRTCAudioPcmCapturer*>* _audioPcmCapturers;
 #endif
 
     RTC_OBJC_TYPE(RTCCallbackLogger) * loggerCallback;
@@ -192,6 +194,7 @@ static FlutterWebRTCPlugin *sharedSingleton;
     self.videoCapturerStopHandlers = [NSMutableDictionary new];
     self.recorders = [NSMutableDictionary new];
 #if TARGET_OS_IPHONE
+    _audioPcmCapturers = [NSMutableDictionary new];
     self.focusMode = @"locked";
   self.exposureMode = @"locked";
   AVAudioSession* session = [AVAudioSession sharedInstance];
@@ -1618,6 +1621,35 @@ bypassVoiceProcessing:(BOOL)bypassVoiceProcessing
                     };
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), tryAttach);
                 }
+            } else if (audioTrack != nil && [audioTrack isKindOfClass:[RTCAudioTrack class]]) {
+                // 纯音频录制 - 使用音频 PCM 采集器
+                NSLog(@"[Plugin] 开始纯音频录制，recorderId: %@", recorderId);
+                
+                // 创建音频 PCM 采集器
+                FlutterRTCAudioPcmCapturer* audioCapturer = [[FlutterRTCAudioPcmCapturer alloc] 
+                    initWithRecorderId:recorderId 
+                            audioTrack:(RTCAudioTrack*)audioTrack];
+                
+                // 存储采集器引用
+                _audioPcmCapturers[recorderId] = audioCapturer;
+                
+                // 开始采集
+                [audioCapturer startCapturing];
+                
+                // 创建一个空的 MediaRecorder 用于兼容性（不实际录制文件）
+                NSURL* pathUrl = [NSURL fileURLWithPath:path];
+                self.recorders[recorderId] = [[FlutterRTCMediaRecorder alloc]
+                        initWithVideoTrack:nil
+                        audioTrack:(RTCAudioTrack*)audioTrack
+                        outputFile:pathUrl
+                        recorderId:recorderId
+                ];
+            } else {
+                NSLog(@"[Plugin] 无效的录制配置：既没有视频轨也没有音频轨");
+                result([FlutterError errorWithCode:@"InvalidRecordingConfig"
+                                          message:@"Neither video track nor audio track provided"
+                                            details:nil]);
+                return;
             }
             result(nil);
     } else if ([@"stopRecordToFile" isEqualToString:call.method]) {
@@ -1627,6 +1659,17 @@ bypassVoiceProcessing:(BOOL)bypassVoiceProcessing
                 if (recorder != nil) {
                     [recorder stop:result];
                     [self.recorders removeObjectForKey:recorderId];
+                    
+                    // 停止音频 PCM 采集器（如果存在）
+#if TARGET_OS_IPHONE
+                    FlutterRTCAudioPcmCapturer* audioCapturer = _audioPcmCapturers[recorderId];
+                    if (audioCapturer != nil) {
+                        [audioCapturer stopCapturing];
+                        [_audioPcmCapturers removeObjectForKey:recorderId];
+                        NSLog(@"[Plugin] 停止音频 PCM 采集器，recorderId: %@", recorderId);
+                    }
+#endif
+                    
                     [self deactiveRtcAudioSession];
                 } else {
                     result([FlutterError errorWithCode:[NSString stringWithFormat:@"%@ failed",call.method]
@@ -1644,6 +1687,14 @@ bypassVoiceProcessing:(BOOL)bypassVoiceProcessing
     _localTracks = nil;
     [_localStreams removeAllObjects];
     _localStreams = nil;
+#if TARGET_OS_IPHONE
+    // 停止所有音频 PCM 采集器
+    for (FlutterRTCAudioPcmCapturer* capturer in _audioPcmCapturers.allValues) {
+        [capturer stopCapturing];
+    }
+    [_audioPcmCapturers removeAllObjects];
+    _audioPcmCapturers = nil;
+#endif
 
     for (NSString* peerConnectionId in _peerConnections) {
         RTCPeerConnection* peerConnection = _peerConnections[peerConnectionId];

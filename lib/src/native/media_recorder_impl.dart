@@ -41,24 +41,14 @@ class MediaRecorderNative extends MediaRecorder {
     _isStarted = true;
 
     _pcmSubscription?.cancel();
-    print("[PCM调试] 开始监听PCM数据，recorderId: $_recorderId");
     _pcmSubscription = FlutterWebRTCEventChannel.instance.handleEvents.stream.listen((data) {
       final event = data.keys.first;
-      print("[PCM调试] 收到事件: $event");
       if (event == 'onAudioPcmData') {
-        print("[PCM调试] 收到PCM数据事件");
         final map = data[event]!;
-        print("[PCM调试] PCM数据: recorderId=${map['recorderId']}, 当前recorderId=$_recorderId");
         if (map['recorderId'] == _recorderId) {
-          print("[PCM调试] recorderId匹配");
           if (onPcm != null) {
-            print("[PCM调试] onPcm回调不为null，准备调用");
             final Uint8List bytes = map['data'] as Uint8List;
-            print("[PCM调试] PCM数据长度: ${bytes.length}");
             onPcm!(bytes, map['sampleRate'] as int, map['numOfChannels'] as int, map['bitsPerSample'] as int);
-            print("[PCM调试] onPcm回调已调用");
-          } else {
-            print("[PCM调试] onPcm回调为null，无法处理PCM数据");
           }
         }
       }

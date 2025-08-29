@@ -6,11 +6,13 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:flutter_webrtc_example/src/webrtc_audio_recorder.dart';
 import 'package:gallery_saver_plus/gallery_saver.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'utils.dart';
 import 'android_pcm_test.dart';
+import 'ios_pcm_test.dart';
 
 /*
  * getUserMedia sample
@@ -53,6 +55,7 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
   bool get _isAudioRec => _audioRecorder != null;
 
   List<MediaDeviceInfo>? _mediaDevicesList;
+  late WebrtcAudioRecorder? recorder;  //录制音频工具类
 
   @override
   void initState() {
@@ -62,21 +65,43 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
       print('++++++ ondevicechange ++++++');
       _mediaDevicesList = await navigator.mediaDevices.enumerateDevices();
     };
+
+
+    //开始录制音频
+   startRecorder();
+
   }
 
   @override
   void deactivate() {
     super.deactivate();
-    if (_inCalling) {
-      _hangUp();
-    }
-    _stopAudioRecording();
-    _localRenderer.dispose();
-    navigator.mediaDevices.ondevicechange = null;
+    releaseRecorder();
+    // if (_inCalling) {
+    //   _hangUp();
+    // }
+    // _stopAudioRecording();
+    // _localRenderer.dispose();
+    // navigator.mediaDevices.ondevicechange = null;
+  }
+
+  void releaseRecorder() async {
+    await recorder?.stopRecording();
+    await recorder?.dispose();
   }
 
   void initRenderers() async {
     await _localRenderer.initialize();
+  }
+
+
+  void startRecorder() async {
+    recorder = WebrtcAudioRecorder(
+      onPCM: (data, sampleRate, channels, bitsPerSample) {
+        print("收到PCM数据: 长度=${data.length}, 采样率=$sampleRate, 声道=$channels, 位深=$bitsPerSample,pcm数据=$data");
+      },
+    );
+
+    await recorder?.startRecording();
   }
 
   // Platform messages are asynchronous, so we initialize in an async method.
@@ -671,6 +696,58 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
                     ],
                   ),
                 ),
+                
+                // iOS PCM测试
+                SizedBox(height: 12),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue[200]!),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.mic, color: Colors.blue[700], size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            'iOS PCM测试',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.blue[700]),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        '专门测试iOS端的PCM数据实时回传功能',
+                        style: TextStyle(fontSize: 12, color: Colors.blue[600]),
+                      ),
+                      SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const IOSPcmTestPage(),
+                              ),
+                            );
+                          },
+                          icon: Icon(Icons.play_arrow),
+                          label: Text('开始iOS PCM测试'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[600],
+                            foregroundColor: Colors.white,
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
                 // PCM文件信息
                 if (_audioPcmFilePath != null) ...[
@@ -736,7 +813,7 @@ class _GetUserMediaSampleState extends State<GetUserMediaSample> {
                               },
                               onTapDown: (TapDownDetails details) =>
                                   onViewFinderTap(details, constraints),
-                              child: RTCVideoView(_localRenderer, mirror: false),
+                              // child: RTCVideoView(_localRenderer, mirror: false),
                             );
                           }),
                     ));

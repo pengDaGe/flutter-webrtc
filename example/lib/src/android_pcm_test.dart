@@ -49,11 +49,19 @@ class _AndroidPcmTestPageState extends State<AndroidPcmTestPage> {
     try {
       // 获取音频权限
       final constraints = <String, dynamic>{
-        'audio': true,
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+          'sampleRate': 24000, // 设置采样率
+          'channelCount': 1,   // 单声道
+        },
         'video': false,
       };
 
       _localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      //开始录制音频
+      await _startRecording();
       
       setState(() {
         _isStreamActive = true;
